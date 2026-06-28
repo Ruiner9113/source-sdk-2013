@@ -2,7 +2,7 @@ cmake_minimum_required( VERSION 3.15 )
 
 set( CMAKE_MSVC_RUNTIME_LIBRARY "MultiThreaded$<$<CONFIG:Debug>:Debug>" )
 
-project( giflib VERSION 5.2.2 )
+project( giflib VERSION 6.1.1 )
 
 FILE( GLOB LIB_SOURCES 
     dgif_lib.c

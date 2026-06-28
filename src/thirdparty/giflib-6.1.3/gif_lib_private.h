@@ -62,14 +62,8 @@ typedef struct GifFilePrivateType {
 	bool gif89;
 } GifFilePrivateType;
 
-void* GifReallocArray( void*, size_t, size_t );
+void *GifReallocArray( void *pvMem, size_t nElements, size_t cbSize );
 #define reallocarray GifReallocArray
-
-#ifdef _WIN32
-// copperpixel: microsoft deprecated POSIX function name aliases
-#define fdopen _fdopen
-#define open _open
-#endif
 
 #endif /* _GIF_LIB_PRIVATE_H */
 

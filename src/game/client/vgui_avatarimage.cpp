@@ -18,8 +18,8 @@
 
 DECLARE_BUILD_FACTORY( CAvatarImagePanel );
 
-CUtlMap< AvatarImagePair_t, int > CAvatarImage::s_staticAvatarCache; // cache of steam id's to textureids to use for static avatars
-CUtlMap< uint32, CAvatarImage::CAnimatedAvatar * > CAvatarImage::s_animatedAvatarCache; // cache of hashed avatar URLs to textureids to use for animated avatars
+CUtlMap< AvatarImagePair_t, int >					CAvatarImage::s_mapStaticAvatarCache;	// cache of steam id's to textureids to use for static avatars
+CUtlMap< uint32, CAvatarImage::CAnimatedAvatar * >	CAvatarImage::s_mapAnimatedAvatarCache;	// cache of hashed avatar URLs to textureids to use for animated avatars
 bool CAvatarImage::m_sbInitializedAvatarCache = false;
 
 ConVar cl_animated_avatars( "cl_animated_avatars", "1", FCVAR_ARCHIVE, "Enable animated avatars" );
@@ -67,8 +67,8 @@ CAvatarImage::CAvatarImage( void )
 	if ( !m_sbInitializedAvatarCache) 
 	{
 		m_sbInitializedAvatarCache = true;
-		SetDefLessFunc( s_staticAvatarCache );
-		SetDefLessFunc( s_animatedAvatarCache );
+		SetDefLessFunc( s_mapStaticAvatarCache );
+		SetDefLessFunc( s_mapAnimatedAvatarCache );
 	}
 }
 
@@ -129,7 +129,7 @@ void CAvatarImage::OnPersonaStateChanged( PersonaStateChange_t *info )
 //-----------------------------------------------------------------------------
 // Purpose: EquippedProfileItems_t callresult
 //-----------------------------------------------------------------------------
-void CAvatarImage::OnEquippedProfileItemsRequested( EquippedProfileItems_t* pInfo, bool bIOFailure )
+void CAvatarImage::OnEquippedProfileItemsRequested( EquippedProfileItems_t *pInfo, bool bIOFailure )
 {
 	if ( bIOFailure || pInfo->m_eResult != k_EResultOK )
 	{
@@ -142,7 +142,7 @@ void CAvatarImage::OnEquippedProfileItemsRequested( EquippedProfileItems_t* pInf
 //-----------------------------------------------------------------------------
 // Purpose: HTTPRequestCompleted_t callresult
 //-----------------------------------------------------------------------------
-void CAvatarImage::OnHTTPRequestCompleted( HTTPRequestCompleted_t* pInfo, bool bIOFailure )
+void CAvatarImage::OnHTTPRequestCompleted( HTTPRequestCompleted_t *pInfo, bool bIOFailure )
 {
 	VPROF( "CAvatarImage::OnHTTPRequestCompleted" );
 
@@ -155,10 +155,10 @@ void CAvatarImage::OnHTTPRequestCompleted( HTTPRequestCompleted_t* pInfo, bool b
 	uint32 unAvatarUrl = ( uint32 )pInfo->m_ulContextValue;
 
 	// did the avatar get created since we started the request?
-	int iIndex = s_animatedAvatarCache.Find( unAvatarUrl );
-	if ( iIndex != s_animatedAvatarCache.InvalidIndex() )
+	int iIndex = s_mapAnimatedAvatarCache.Find( unAvatarUrl );
+	if ( iIndex != s_mapAnimatedAvatarCache.InvalidIndex() )
 	{
-		m_pAnimatedAvatar = s_animatedAvatarCache[ iIndex ];
+		m_pAnimatedAvatar = s_mapAnimatedAvatarCache[ iIndex ];
 		SteamHTTP()->ReleaseHTTPRequest( pInfo->m_hRequest );
 		return;
 	}
@@ -169,21 +169,17 @@ void CAvatarImage::OnHTTPRequestCompleted( HTTPRequestCompleted_t* pInfo, bool b
 	Verify( SteamHTTP()->GetHTTPResponseBodyData( pInfo->m_hRequest, ( uint8 * )buf.Base(), pInfo->m_unBodySize ) );
 
 	CAnimatedAvatar *pAvatar = new CAnimatedAvatar;
-	if ( !pAvatar->m_gif.BOpenImage( buf ) )
+	if ( !pAvatar->m_Material.BInit( buf.Base(), buf.Size() ) )
 	{
+		Warning( "Attempted to load malformed avatar for %llu\n", m_SteamID.ConvertToUint64() );
 		delete pAvatar;
 		SteamHTTP()->ReleaseHTTPRequest( pInfo->m_hRequest );
 		return;
 	}
-
-	// create texture id tree; we will lazy initialize the actual textures when it's time to draw ( see Paint method )
-	// since ->GetRGBA calls are somewhat expensive and when called on all frames at once might cause stutters
-	pAvatar->m_textureIDs.EnsureCount( pAvatar->m_gif.GetFrameCount() );
-	pAvatar->m_textureIDs.FillWithValue( -1 );
 	pAvatar->m_unUrlHashed = unAvatarUrl;
 
 	// cache the new avatar
-	s_animatedAvatarCache.Insert( unAvatarUrl, pAvatar );
+	s_mapAnimatedAvatarCache.Insert( unAvatarUrl, pAvatar );
 	m_pAnimatedAvatar = pAvatar;
 
 	SteamHTTP()->ReleaseHTTPRequest( pInfo->m_hRequest );
@@ -219,10 +215,10 @@ void CAvatarImage::LoadAnimatedAvatar()
 	uint32 unAvatarUrl = MurmurHash2( pszAvatarUrl, Q_strlen( pszAvatarUrl ), 1047 /*anything will do for a seed*/ );
 
 	// See if we have this avatar cached already...
-	int iIndex = s_animatedAvatarCache.Find( unAvatarUrl );
-	if ( iIndex != s_animatedAvatarCache.InvalidIndex() )
+	int iIndex = s_mapAnimatedAvatarCache.Find( unAvatarUrl );
+	if ( iIndex != s_mapAnimatedAvatarCache.InvalidIndex() )
 	{
-		m_pAnimatedAvatar = s_animatedAvatarCache[ iIndex ];
+		m_pAnimatedAvatar = s_mapAnimatedAvatarCache[ iIndex ];
 		return;
 	}
 
@@ -334,17 +330,17 @@ void CAvatarImage::UpdateFriendStatus( void )
 //-----------------------------------------------------------------------------
 void CAvatarImage::InitFromRGBA( int iAvatar, const byte *rgba, int width, int height )
 {
-	int iTexIndex = s_staticAvatarCache.Find( AvatarImagePair_t( m_SteamID, iAvatar ) );
-	if ( iTexIndex == s_staticAvatarCache.InvalidIndex() )
+	int iTexIndex = s_mapStaticAvatarCache.Find( AvatarImagePair_t( m_SteamID, iAvatar ) );
+	if ( iTexIndex == s_mapStaticAvatarCache.InvalidIndex() )
 	{
 		m_iStaticTextureID = vgui::surface()->CreateNewTextureID(true);
 		g_pMatSystemSurface->DrawSetTextureRGBAEx2( m_iStaticTextureID, rgba, width, height, IMAGE_FORMAT_RGBA8888, true );
-		iTexIndex = s_staticAvatarCache.Insert( AvatarImagePair_t( m_SteamID, iAvatar ) );
-		s_staticAvatarCache[ iTexIndex ] = m_iStaticTextureID;
+		iTexIndex = s_mapStaticAvatarCache.Insert( AvatarImagePair_t( m_SteamID, iAvatar ) );
+		s_mapStaticAvatarCache[ iTexIndex ] = m_iStaticTextureID;
 	}
 	else
-		m_iStaticTextureID = s_staticAvatarCache[iTexIndex];
-	
+		m_iStaticTextureID = s_mapStaticAvatarCache[ iTexIndex ];
+
 	m_bValid = true;
 }
 
@@ -375,37 +371,18 @@ void CAvatarImage::Paint( void )
 	}
 
 	int iTextureID = m_iStaticTextureID;
-	if ( m_pAnimatedAvatar.IsValid() && cl_animated_avatars.GetBool() )
+	if ( cl_animated_avatars.GetBool() && m_pAnimatedAvatar.IsValid() )
 	{
-		CGIFHelper &gif = m_pAnimatedAvatar->m_gif;
-		if ( gif.BIsProcessed() )
+		CGifMaterial &Material = m_pAnimatedAvatar->m_Material;
+		if ( Material.BIsProcessed() )
 		{
-			bool bMarkForDeletion = false;
-			// update the frame if needed
-			if ( gif.BShouldIterateFrame() && gif.BNextFrame() )
+			Material.BAdvanceFrame();
+			if ( m_pAnimatedAvatar->m_iTextureID == -1 )
 			{
-				// we can free the gif helper's copy of the texture now that matsystemsurface got all frames
-				bMarkForDeletion = true;
+				m_pAnimatedAvatar->m_iTextureID = g_pMatSystemSurface->CreateNewTextureID();
+				g_pMatSystemSurface->DrawSetTextureMaterial( m_pAnimatedAvatar->m_iTextureID, Material.GetMaterial() );
 			}
-
-			int &iFrameTexID = m_pAnimatedAvatar->m_textureIDs[ gif.GetSelectedFrame() ];
-			if ( iFrameTexID == -1 )
-			{
-				// init the texture for the current frame
-				iFrameTexID = vgui::surface()->CreateNewTextureID( true );
-
-				int nWide, nTall;
-				gif.FrameSize( nWide, nTall );
-
-				// bind frame data to the texture
-				g_pMatSystemSurface->DrawSetTextureRGBAEx2( iFrameTexID, gif.FrameData(), nWide, nTall, IMAGE_FORMAT_DXT1_RUNTIME, true );
-			}
-			iTextureID = iFrameTexID;
-
-			if ( bMarkForDeletion )
-			{
-				gif.DestroyTexture();
-			}
+			iTextureID = m_pAnimatedAvatar->m_iTextureID;
 		}
 	}
 
@@ -503,16 +480,8 @@ void CAvatarImage::CAnimatedAvatar::Release( void )
 		return;
 	}
 
-	FOR_EACH_VEC( m_textureIDs, j )
-	{
-		int &iTextureID = m_textureIDs[ j ];
-		if ( iTextureID != -1 )
-		{
-			vgui::surface()->DestroyTextureID( iTextureID );
-			iTextureID = -1;
-		}
-	}
-	s_animatedAvatarCache.Remove( m_unUrlHashed );
+	vgui::surface()->DestroyTextureID( m_iTextureID );
+	s_mapAnimatedAvatarCache.Remove( m_unUrlHashed );
 	delete this;
 }
 

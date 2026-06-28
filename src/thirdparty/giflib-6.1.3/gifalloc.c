@@ -2,9 +2,9 @@
 
  GIF construction tools
 
-SPDX-License-Identifier: MIT
-
 ****************************************************************************/
+// SPDX-License-Identifier: MIT
+// SPDX-FileCopyrightText: Copyright (C) Eric S. Raymond <esr@thyrsus.com>
 
 #include <stdio.h>
 #include <stdlib.h>
@@ -143,9 +143,9 @@ ColorMapObject *GifUnionColorMap(const ColorMapObject *ColorIn1,
 	 * of table 1.  This is very useful if your display is limited to
 	 * 16 colors.
 	 */
-	while (ColorIn1->Colors[CrntSlot - 1].Red == 0 &&
+	while (CrntSlot > 0 && (ColorIn1->Colors[CrntSlot - 1].Red == 0 &&
 	       ColorIn1->Colors[CrntSlot - 1].Green == 0 &&
-	       ColorIn1->Colors[CrntSlot - 1].Blue == 0) {
+			    ColorIn1->Colors[CrntSlot - 1].Blue == 0)) {
 		CrntSlot--;
 	}
 
@@ -349,6 +349,14 @@ SavedImage *GifMakeSavedImage(GifFileType *GifFile,
 			 * aliasing problems.
 			 */
 
+			/* Null out aliased pointers before any allocations
+			 * so that FreeLastSavedImage won't free CopyFrom's
+			 * data if an allocation fails partway through. */
+			sp->ImageDesc.ColorMap = NULL;
+			sp->RasterBits = NULL;
+			sp->ExtensionBlocks = NULL;
+			sp->ExtensionBlockCount = 0;
+ 
 			/* first, the local color map */
 			if (CopyFrom->ImageDesc.ColorMap != NULL) {
 				sp->ImageDesc.ColorMap = GifMakeMapObject(
@@ -377,18 +385,36 @@ SavedImage *GifMakeSavedImage(GifFileType *GifFile,
 
 			/* finally, the extension blocks */
 			if (CopyFrom->ExtensionBlocks != NULL) {
+				int k;
 				sp->ExtensionBlocks =
-				    (ExtensionBlock *)reallocarray(
-				        NULL, CopyFrom->ExtensionBlockCount,
+				    (ExtensionBlock *)calloc(
+				        CopyFrom->ExtensionBlockCount,
 				        sizeof(ExtensionBlock));
 				if (sp->ExtensionBlocks == NULL) {
 					FreeLastSavedImage(GifFile);
 					return (SavedImage *)(NULL);
 				}
-				memcpy(sp->ExtensionBlocks,
-				       CopyFrom->ExtensionBlocks,
-				       sizeof(ExtensionBlock) *
-				           CopyFrom->ExtensionBlockCount);
+				for (k = 0; k < CopyFrom->ExtensionBlockCount;
+				     k++) {
+					ExtensionBlock *dst =
+					    &sp->ExtensionBlocks[k];
+					ExtensionBlock *src =
+					    &CopyFrom->ExtensionBlocks[k];
+					dst->Function = src->Function;
+					dst->ByteCount = src->ByteCount;
+					if (src->ByteCount > 0) {
+						dst->Bytes =
+						    (GifByteType *)malloc(
+						        src->ByteCount);
+						if (dst->Bytes == NULL) {
+							FreeLastSavedImage(
+							    GifFile);
+							return (SavedImage *)(NULL);
+						}
+						memcpy(dst->Bytes, src->Bytes,
+						       src->ByteCount);
+					}
+				}
 			}
 		} else {
 			memset((char *)sp, '\0', sizeof(SavedImage));
@@ -422,16 +448,17 @@ void GifFreeSavedImages(GifFileType *GifFile) {
 	GifFile->SavedImages = NULL;
 }
 
-// copperpixel: simple realloc array since some systems might not have it
-void* GifReallocArray( void* pMem, size_t nNewCount, size_t nSize )
+/******************************************************************************
+ Generic realloc array implementation since some systems might not have it
+ -copperpixel
+*******************************************************************************/
+void *GifReallocArray( void *pvMem, size_t nElements, size_t cbSize )
 {
-	if( nNewCount != 0 && nSize > SIZE_MAX / nNewCount )
+	if ( cbSize && ( nElements ) > ( SIZE_MAX / cbSize ) )
 	{
-		// overflow
 		return NULL;
 	}
-
-	return realloc( pMem, nNewCount * nSize );
+	return realloc( pvMem, nElements * cbSize );
 }
 
 /* end */

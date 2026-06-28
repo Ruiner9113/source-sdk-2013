@@ -14,7 +14,7 @@
 #include <vgui_controls/ImagePanel.h>
 #include "steam/steam_api.h"
 #include "c_baseplayer.h"
-#include "gifhelper.h"
+#include "gifmaterial.h"
 
 // size of the friend background frame (see texture ico_friend_indicator_avatar)
 #define FRIEND_ICON_SIZE_X	(55)	
@@ -154,20 +154,24 @@ private:
 	class CAnimatedAvatar
 	{
 	public:
-		CAnimatedAvatar( void ) : m_unUrlHashed( 0 ), m_nRefCount( 0 ) {}
+		CAnimatedAvatar( void )
+			: m_iTextureID( -1 )
+			, m_unUrlHashed( 0 )
+			, m_nRefCount( 0 )
+		{
+		}
 
-		CGIFHelper m_gif;
-		CUtlVector< int > m_textureIDs;
-
-		uint32 m_unUrlHashed;
+		CGifMaterial	m_Material;
+		int				m_iTextureID;
+		uint32			m_unUrlHashed;
 
 	private:
 		friend class CRefCountAccessor;
 
-		void AddRef( void );
-		void Release( void );
+		void			AddRef( void );
+		void			Release( void );
 
-		int m_nRefCount;
+		int				m_nRefCount;
 	};
 
 	Color m_Color;
@@ -201,8 +205,8 @@ private:
 	// HPE_END
 	//=============================================================================
 	
-	static CUtlMap< AvatarImagePair_t, int > s_staticAvatarCache;
-	static CUtlMap< uint32, CAnimatedAvatar * > s_animatedAvatarCache;
+	static CUtlMap< AvatarImagePair_t, int >	s_mapStaticAvatarCache;
+	static CUtlMap< uint32, CAnimatedAvatar * >	s_mapAnimatedAvatarCache;
 	static bool m_sbInitializedAvatarCache;
 	CCallback<CAvatarImage, PersonaStateChange_t, false> m_sPersonaStateChangedCallback;
 	void OnPersonaStateChanged( PersonaStateChange_t *info );

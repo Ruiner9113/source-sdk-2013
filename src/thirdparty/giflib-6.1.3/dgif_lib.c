@@ -6,9 +6,9 @@ The functions here and in egif_lib.c are partitioned carefully so that
 if you only require one of read and write capability, only one of these
 two modules will be linked.  Preserve this property!
 
-SPDX-License-Identifier: MIT
-
 *****************************************************************************/
+// SPDX-License-Identifier: MIT
+// SPDX-FileCopyrightText: Copyright (C) Eric S. Raymond <esr@thyrsus.com>
 
 #include <fcntl.h>
 #include <limits.h>
@@ -28,10 +28,6 @@ SPDX-License-Identifier: MIT
 
 /* compose unsigned little endian value */
 #define UNSIGNED_LITTLE_ENDIAN(lo, hi) ((lo) | ((hi) << 8))
-
-#ifdef _WIN32
-extern FILE* _fdopen(int, const char*);
-#endif
 
 /* avoid extra function call in case we use fread (TVT) */
 static int InternalRead(GifFileType *gif, GifByteType *buf, int len) {
@@ -498,10 +494,11 @@ int DGifGetLine(GifFileType *GifFile, GifPixelType *Line, int LineLen) {
 		LineLen = GifFile->Image.Width;
 	}
 
-	if ((Private->PixelCount -= LineLen) > 0xffff0000UL) {
+	if (LineLen < 0 || Private->PixelCount < (unsigned long)LineLen) {
 		GifFile->Error = D_GIF_ERR_DATA_TOO_BIG;
 		return GIF_ERROR;
 	}
+	Private->PixelCount -= LineLen;
 
 	if (DGifDecompressLine(GifFile, Line, LineLen) == GIF_OK) {
 		if (Private->PixelCount == 0) {
@@ -535,10 +532,11 @@ int DGifGetPixel(GifFileType *GifFile, GifPixelType Pixel) {
 		GifFile->Error = D_GIF_ERR_NOT_READABLE;
 		return GIF_ERROR;
 	}
-	if (--Private->PixelCount > 0xffff0000UL) {
+	if (Private->PixelCount == 0) {
 		GifFile->Error = D_GIF_ERR_DATA_TOO_BIG;
 		return GIF_ERROR;
 	}
+	Private->PixelCount --;
 
 	if (DGifDecompressLine(GifFile, &Pixel, 1) == GIF_OK) {
 		if (Private->PixelCount == 0) {
@@ -1159,8 +1157,19 @@ void DGifDecreaseImageCounter(GifFileType *GifFile) {
 	if (GifFile->SavedImages[GifFile->ImageCount].RasterBits != NULL) {
 		free(GifFile->SavedImages[GifFile->ImageCount].RasterBits);
 	}
+	if (GifFile->SavedImages[GifFile->ImageCount].ImageDesc.ColorMap != NULL) {
+		GifFreeMapObject(GifFile->SavedImages[GifFile->ImageCount].ImageDesc.ColorMap);
+	}
 
-	// Realloc array according to the new image counter.
+	// Avoid a dodgy edge casse in reallocarray() */
+	if (GifFile->ImageCount <= 0) {
+		free(GifFile->SavedImages);
+		GifFile->SavedImages = NULL;
+		GifFile->ImageCount = 0;
+		return;
+	}
+
+	/* Realloc array according to the new image counter. */
 	SavedImage *correct_saved_images = (SavedImage *)reallocarray(
 	    GifFile->SavedImages, GifFile->ImageCount, sizeof(SavedImage));
 	if (correct_saved_images != NULL) {
